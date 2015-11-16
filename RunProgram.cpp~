@@ -1,0 +1,248 @@
+#include "RunProgram.h"
+
+
+	int main(int argc, char const *argv[])
+	{
+	 	std::srand ( unsigned ( std::time(0) ) );
+
+		DataRetrieval dr(argv[1]);
+	 	particles = dr.getParticles();
+	
+	 	std::random_shuffle ( particles.begin(), particles.end() );
+	 	
+
+	 	numHiddenLayers =atoi(argv[2]);
+		numHiddenNodes = atoi(argv[3]);
+
+		int generations = atoi(argv[4]);
+
+		double trainPercent =0.8;
+
+		cout << "==========================================================================================" << endl;
+		cout << "Starting Neural Network" << endl;
+		cout << "Number of Inputs: " << numInputs << endl;
+		cout << "Number of Hidden Layers: " << numHiddenLayers << endl;
+		cout << "Number of Hidden Nodes: " << numHiddenNodes << endl;
+		cout << "Number of Outputs: " << numOutputs << endl; 
+		cout << "Number of Generations: " << generations << endl;
+		cout << "-------------------------------------------------------------------------------------------" << endl;
+
+
+		int numTrainedParticles = particles.size()*trainPercent;
+		cout << "Number of Trained Particles: " << numTrainedParticles  << endl;
+
+
+		NeuronLayers neuronLayers(numInputs, numHiddenLayers, numHiddenNodes, numOutputs);
+
+
+		for(int i=0;i<generations;i++)
+		{
+			//std::random_shuffle ( particles.begin(), particles.begin()+numTrainedParticles );
+
+			clog << "Generation No: "<< i<< " out of " << generations;
+			for(int u=0;u<numTrainedParticles;u++) 
+			{
+				ParticleInformation particle = particles[u];
+
+				fillInputs(particle, neuronLayers);
+				fillTargets(particle, neuronLayers);
+
+				neuronLayers.forwardPass();
+				neuronLayers.backwardPass();
+			}
+			//float error = fillNeuralNetworkPIDs(neuronLayers, 0, numTrainedParticles);
+			//float efficiency = makeNeuralNetworkHistogram(0,numTrainedParticles, false);	
+
+			//clog << "\t"<< efficiency << " " << error << endl;
+			clog << endl;
+
+		}
+
+		//Trained Results
+		cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+		cout << "Trained Results" << endl;
+		float error = fillNeuralNetworkPIDs(neuronLayers, 0, numTrainedParticles);
+
+		float efficiency = makeNeuralNetworkHistogram( 0,numTrainedParticles, true);
+
+		cout << "Error: " << error << endl; 
+		cout << "Pion Efficiency: " << efficiency << endl; 
+
+		cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+
+		//Untrained Results
+		cout << "Untrained Results" << endl;
+		error = fillNeuralNetworkPIDs(neuronLayers, numTrainedParticles, particles.size());
+
+		efficiency =makeNeuralNetworkHistogram( numTrainedParticles,particles.size(), true);
+
+		cout << "Error: " << error << endl; 
+		cout << "Pion Efficiency: " << efficiency << endl; 
+
+		cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+		//Combined Results
+		cout << "Combined Results" << endl;
+		error = fillNeuralNetworkPIDs(neuronLayers, 0, particles.size());
+
+		efficiency = makeNeuralNetworkHistogram( 0,particles.size(), true);
+
+		cout << "Error: " << error << endl; 
+		cout << "Pion Efficiency: " << efficiency << endl; 
+
+		cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+
+		return 0;
+	}
+
+	void fillInputs(ParticleInformation &particle, NeuronLayers& neuronLayers)
+	{
+		for(int j=0;j<27;j++)
+		{
+			float sum=0;
+			if(particle.getTimeBin()[j]<400)
+			 	sum= particle.getTimeBin()[j]/ (float)( 400 );
+			else
+				sum=1;
+
+			neuronLayers.fillInputNeuron(j, sum);
+		}
+	}
+
+	void fillTargets(ParticleInformation &particle, NeuronLayers& neuronLayers)
+	{
+		if(particle.getType()==("ELECTRON"))
+		{
+			neuronLayers.setTarget((float) 1, 0);	//electron
+			neuronLayers.setTarget((float) 0, 1);	//pion
+		}
+		else
+		{
+			neuronLayers.setTarget((float) 0, 0);	//electron
+			neuronLayers.setTarget((float) 1, 1);	//pion
+		}
+	}
+
+	float fillNeuralNetworkPIDs(NeuronLayers& neuronLayers, int begin, int end)
+	{
+		float sumError=0;
+		for(int u=begin;u<end;u++)
+		{
+			ParticleInformation particle = particles[u];
+			
+			fillInputs(particle, neuronLayers);
+			fillTargets(particle, neuronLayers);
+			neuronLayers.forwardPass();
+
+			sumError +=neuronLayers.getErrorOutput(0);
+			sumError +=neuronLayers.getErrorOutput(1);
+
+
+
+			int ele = (int)(neuronLayers.getOutput(0)*15);
+			int pio = (int)(neuronLayers.getOutput(1)*15);
+			
+		
+			particles[u].setPID4_electron(ele);
+			particles[u].setPID4_pion(pio);
+		}
+
+		sumError = (float) sqrt(sumError/(float)(end-begin));
+		return sumError;
+	}
+
+	float makeNeuralNetworkHistogram(int begin, int end, bool print)
+	{
+		int histogram_4ELECTRON[16][16];
+		for(int i=0;i<16;i++)
+			std::fill(histogram_4ELECTRON[i], histogram_4ELECTRON[i]+16,0);
+		
+		int histogram_4PION[16][16];
+		for(int i=0;i<16;i++)
+			std::fill(histogram_4PION[i], histogram_4PION[i]+16,0);
+		
+		int totalE=0;
+		int totalP=0;
+
+		for(int i=begin;i<end;i++)
+		{
+			ParticleInformation particle = particles[i];
+
+			string type = particle.getType();
+			if(type==("ELECTRON"))
+			{
+				histogram_4ELECTRON[particle.getPID4_electron()][particle.getPID4_pion()]++;
+				totalE++;
+			}
+			else if(type==("PION"))
+			{
+				histogram_4PION[particle.getPID4_electron()][particle.getPID4_pion()]++;
+				totalP++;
+			}
+		}
+
+		if(print)
+		{
+			cout << "Electron Histogram" << endl;
+			for(int i=15;i>=0;i--)
+			{
+				for(int j=0;j<16;j++)
+				{
+					cout << "\t" <<histogram_4ELECTRON[i][j];
+				}
+				cout << endl;
+			}
+			cout<< endl;
+			
+
+			cout << "Pion Histogram" << endl;
+			for(int i=15;i>=0;i--)
+			{
+				for(int j=0;j<16;j++)
+					cout << "\t" <<histogram_4PION[i][j];
+				cout << endl;
+			}
+			cout<< endl;
+		}
+
+		int partNintyE=totalE*0.9;
+		int indexOfNintyE;
+		int indexOfNintyP;
+		int countingE=0;
+		for(int i=15;i>=0;i--)
+		{
+			for(int j=0;j<16;j++)
+			{
+				countingE+=histogram_4ELECTRON[i][j];
+				//clog << " "<< countingE;
+
+				if(countingE>=partNintyE)
+				{
+	//				clog << " "<< countingE;
+					//clog << " " << i << " " << j;
+					indexOfNintyE=i;
+					indexOfNintyP=j;
+					break;
+				}
+			}
+			if(countingE>=partNintyE)
+			{
+				break;
+			}
+
+		}
+
+		int pionsMisidentified=0;
+	//	clog << " BLOCKS:  "<<indexOfNintyE << " " << indexOfNintyP <<  " ";
+ 
+		for(int i=15;i>=indexOfNintyE;i--)
+		{
+			for(int j=0;j<indexOfNintyP;j++)
+			{
+				pionsMisidentified+=histogram_4PION[i][j];
+			}
+		}
+
+
+		return (pionsMisidentified/(float)(totalP));
+	}
+
